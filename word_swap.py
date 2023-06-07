@@ -1,3 +1,4 @@
+import torch
 import pandas as pd
 import numpy as np
 import os 
@@ -14,7 +15,7 @@ from tqdm import TqdmExperimentalWarning
 
 warnings.filterwarnings("ignore", category=TqdmExperimentalWarning)
 
-def create_distribution(word,candidate_embeddings,mean,half_width,embedding_function, excluded_token_ids = [], size=10,spacing=.001):
+def create_distribution(word,tokenizer,candidate_embeddings,mean,half_width,embedding_function, excluded_token_ids = [], size=10,spacing=.001):
     out = None
     with torch.no_grad():
         token = tokenizer.encode(word)
@@ -174,13 +175,13 @@ class RandomPosWordSwap(WordSwap):
 
 
 class DistributionWordSwap(WordSwap):
-    def __init__(self,word_list,embedding_function,sampling_params,excluded_token_ids = []):
+    def __init__(self,word_list,candidate_embeddings,embedding_function,sampling_params,tokenizer,excluded_token_ids = []):
         super().__init__(excluded_token_ids=excluded_token_ids)
         self.word_list = word_list
+        self.candidate_embeddings = candidate_embeddings
         self.embedding_function = embedding_function
         self.sampling_params = sampling_params
-
-        self.candidate_embeddings = create_candidate_embeddings(tokens,embedding_function)
+        self.tokenizer = tokenizer
         assert candidate_embeddings.shape[0] == len(word_list), "Word list and candidate embeddings don't match"
 
 
@@ -197,16 +198,17 @@ class DistributionWordSwap(WordSwap):
                     temp = s.copy()
                     try:
                         distribution = create_distribution(word,
-                                                            candidate_embeddings,
+                                                            self.tokenizer,
+                                                            self.candidate_embeddings,
                                                             **self.sampling_params,
                                                             embedding_function = self.embedding_function,
                                                             excluded_token_ids = self.excluded_token_ids)
 
                         selected_idx = np.random.choice(distribution)
-                        temp[i] = word_list[selected_idx]
+                        temp[i] = self.word_list[selected_idx]
                     except:
                         print("Using random word sub for: ",word)
-                        temp[i] = random.choice(word_list)
+                        temp[i] = random.choice(self.word_list)
                     swapped_sequences.append(temp)
             self.swapped.append(swapped_sequences)
             self.original_sequences.append(s)

@@ -1,8 +1,12 @@
 import pandas as pd
+import torch
+import numpy as np
 import itertools
+import itertools
+import warnings
+from tqdm.auto import tqdm
 
-
-def preproc_stim(text,tokenizer,excluded_token_ids = []):
+def text_to_df(text,tokenizer,excluded_token_ids = []):
     """ Converts text to a Pandas DataFrame and tokenizes.
 
     Also counts the number of tokens in each word, necessary for post processing
@@ -44,7 +48,7 @@ def aggregate_tokens(df,activations):
 def get_activations(
     dfs,
     model,
-    wte_only = True if model.config.model_type == "gpt2" else False,
+    wte_only = True,
     device='cuda'):
 
     """Gets activations for a list of DataFrames.
@@ -60,7 +64,8 @@ def get_activations(
     """
 
     if model.config.model_type != "gpt2" and wte_only:
-        raise Exception("wte_only is only supported for gpt2 models")
+        warnings.warn("wte_only is only supported for GPT2 models. Setting wte_only to False.")
+        wte_only = False
 
     model.to(device)
     model.eval()
@@ -82,8 +87,8 @@ def get_activations(
     results = torch.stack(results,dim=1)
     return results
 
-def calculate_difference_tensor(swapped_seqs,original_seqs,tokenizer,model,device='cuda'):
-    """Calculates the difference tensor for a list of swapped and original sequences.
+def calculate_differences(swapped_seqs,original_seqs,tokenizer,model,device='cuda'):
+    """Calculates the differences for a list of swapped and original sequences.
 
     Args:
         swapped_seqs (list): list of lists of swapped sequences
@@ -102,9 +107,9 @@ def calculate_difference_tensor(swapped_seqs,original_seqs,tokenizer,model,devic
         try:
             swapped_dfs = []
             for s in swapped:
-                df = preproc_stim(s,tokenizer=tokenizer)
+                df = text_to_df(s,tokenizer=tokenizer)
                 swapped_dfs.append(df)
-            original_df = preproc_stim(original,tokenizer=tokenizer)
+            original_df = text_to_df(original,tokenizer=tokenizer)
             swapped_activations = get_activations(swapped_dfs,model=model,device=device)
             original_activations = get_activations([original_df],model=model,device=device)
 
