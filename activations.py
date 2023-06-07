@@ -1,65 +1,122 @@
-def preproc_stim(text, lower=False, model_name_or_path='gpt2',tokenizer_kwargs = {},tokenizer=None):
-    if tokenizer is None:
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_name_or_path, add_special_token=False,add_prefix_space=True,**tokenizer_kwargs)
+import pandas as pd
+import itertools
 
-    df = pd.DataFrame({'word': text.split()})
-    text = format_text(text, lower=lower)
-    transcript_tokens = space_tokenizer(text)
-    gentle_tokens = gentle_tokenizer(text)
-    #assert len(gentle_tokens) == len(df)
 
-    spans = match_transcript_tokens(transcript_tokens, gentle_tokens)
-    assert len(spans) == len(gentle_tokens)
+def preproc_stim(text,tokenizer,excluded_token_ids = []):
+    """ Converts text to a Pandas DataFrame and tokenizes.
 
-    tokens = [w[0] for w in spans]
-    tokens = format_tokens(tokens, lower=lower)
+    Also counts the number of tokens in each word, necessary for post processing
+    words with more than one token (e.g., by taking the mean activation across tokens).
 
-    # word raw
-    # df.set_index(keys="word", inplace=True)
-    df["word_raw"] = tokens
+    Args:
+        text (list): list of strings to be tokenized
+        tokenizer: Huggingface tokenizer
+        excluded_token_ids (list): list of token ids to be excluded from the analysis
 
-    # is_final_word
-    begin_of_sentences_marks = [".", "!", "?"]
-    # df["is_eos"] = [np.any([k in i for k in begin_of_sentences_marks])
-    #                 for i in tokens]
+    Returns:
+        df (pd.DataFrame): DataFrame with the following columns:
+            - word: the original word
+            - tokens: the tokenized word
+            - n_tokens_in_word: the number of tokens in the word
+            - decoded: the decoded tokens (sanity check)
+    """
 
-    df["is_eos"] = [np.any([k in i for k in begin_of_sentences_marks])
-                    for i in df["word"].values]
-
-    # is_bos
-    df["is_bos"] = np.roll(df["is_eos"], 1)
-
-    # seq_id
-    df["sequ_index"] = df["is_bos"].cumsum() - 1
-
-    # wordpos_in_seq
-    df["wordpos_in_seq"] = df.groupby("sequ_index").cumcount()
-
-    # wordpos_in_stim
-    df["wordpos_in_stim"] = np.arange(len(tokens))
-
-    # seq_len
-    df["seq_len"] = df.groupby("sequ_index")["word_raw"].transform(len)
-
-    # end of file
-    df["is_eof"] = [False] * (len(df) - 1) + [True]
-    df["is_bof"] = [True] + [False] * (len(df) - 1)
-
-    df["word_raw"] = df["word_raw"].fillna("")
-    df["word"] = df["word"].fillna("")
-    df['tokens'] = [tokenizer.encode(row["word_raw"]) for i,row in df.iterrows()]
-
-    # if 'bert' in model_name_or_path:
-    #     df['tokens'] = [[t for t in row['tokens'] if t not in [101,102]] for i,row in df.iterrows()]
-    
-    if 'roberta' in model_name_or_path:
-        df['tokens'] = [[t for t in row['tokens'] if t not in [0,2]] for i,row in df.iterrows()]
-    elif 'llama' in model_name_or_path:
-        df['tokens'] = [[t for t in row['tokens'] if t not in [1]] for i,row in df.iterrows()]
-    
+    df = pd.DataFrame({'word': text})
+    df['tokens'] = [tokenizer.encode(row["word"]) for i,row in df.iterrows()]
+    df['tokens'] = [[t for t in row['tokens'] if t not in excluded_token_ids] for i,row in df.iterrows()]
     df['n_tokens_in_word'] = [len(i) for i in df['tokens']]
     df['decoded'] = [tokenizer.convert_ids_to_tokens(row['tokens']) for i,row in df.iterrows()]
     
-
     return(df)
+
+def aggregate_tokens(df,activations):
+    """Post-processes activations by calculating the mean across tokens in a word."""
+    assert torch.any(torch.isnan(activations)) == False
+    assert df['n_tokens_in_word'].sum() == activations.shape[1]
+    out = []
+    counter = 0
+    for i,row in df.iterrows():
+        new = activations[:,counter:counter+row['n_tokens_in_word'],:].mean(dim=1)
+        out.append(new)
+        counter += row['n_tokens_in_word']
+    return torch.stack(out,dim=1)
+
+def get_activations(
+    dfs,
+    model,
+    wte_only = True if model.config.model_type == "gpt2" else False,
+    device='cuda'):
+
+    """Gets activations for a list of DataFrames.
+
+    Args:
+        dfs (list): list of DataFrames
+        model: Huggingface model
+        wte_only (bool): whether to only use the WTE layer (only supported for GPT2 models)
+        device (str): device to use for the model (e.g., 'cpu', 'cuda')
+    
+    Returns:
+        results (torch.Tensor): tensor of activations with shape (n_layers, n_sequences, n_words, n_features)
+    """
+
+    if model.config.model_type != "gpt2" and wte_only:
+        raise Exception("wte_only is only supported for gpt2 models")
+
+    model.to(device)
+    model.eval()
+    results = []
+
+    for df in dfs:
+        df["word_index"] = np.arange(len(df))
+        with torch.no_grad():
+            inpt = torch.tensor(list(itertools.chain.from_iterable(df['tokens']))).reshape(1,-1)
+            inpt = inpt.to(model.device)
+            out = model(inpt, output_hidden_states=True)
+            out = torch.stack(out.hidden_states)
+            if wte_only:
+                out[0] = model.base_model.wte.forward(inpt)[None]
+            out = out.cpu()
+
+        out = aggregate_tokens(df,out.squeeze())
+        results.append(out)
+    results = torch.stack(results,dim=1)
+    return results
+
+def calculate_difference_tensor(swapped_seqs,original_seqs,tokenizer,model,device='cuda'):
+    """Calculates the difference tensor for a list of swapped and original sequences.
+
+    Args:
+        swapped_seqs (list): list of lists of swapped sequences
+        original_seqs (list): list of original sequences
+        tokenizer: Huggingface tokenizer
+        model: Huggingface model
+        device (str): device to use for the model (e.g., 'cpu', 'cuda')
+
+    Returns:
+        out (torch.Tensor): tensor of differences with shape (n_layers, swap position, measured position, n_features)
+    """
+
+    out = None
+    n = 0
+    for zz,(swapped,original) in tqdm(enumerate(zip(swapped_seqs,original_seqs))):
+        try:
+            swapped_dfs = []
+            for s in swapped:
+                df = preproc_stim(s,tokenizer=tokenizer)
+                swapped_dfs.append(df)
+            original_df = preproc_stim(original,tokenizer=tokenizer)
+            swapped_activations = get_activations(swapped_dfs,model=model,device=device)
+            original_activations = get_activations([original_df],model=model,device=device)
+
+            if (swapped_activations is not None) and (original_activations is not None):
+                difference = torch.abs(swapped_activations - original_activations)
+                if out is None:
+                    out = difference
+                else:
+                    out += difference
+                n += 1
+        except ValueError:
+            print("Error: ",zz,original)
+            continue
+    print("Finished calculating difference tensor for ",n," sequences")
+    return out/n
