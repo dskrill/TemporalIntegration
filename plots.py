@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib import rcParams
 from scipy.io import loadmat
 
-colormap = loadmat('/scratch/snormanh_lab/dskrill/IntegrationAnalysis/code/colormap-custom-lightblue-to-yellow1.mat')['cmap']
+colormap = loadmat('colormap-custom-lightblue-to-yellow1.mat')['cmap']
 colormap = matplotlib.colors.ListedColormap(colormap)
 plt.style.use('seaborn-whitegrid')
 rcParams['figure.dpi']= 1200
