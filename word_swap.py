@@ -155,13 +155,13 @@ class RandomPosWordSwap(WordSwap):
                 token = self.tokenizer.encode(to_swap)
                 token = [t for t in token if t not in self.excluded_token_ids]
                 while (to_swap == word) or len(token)>1:
-                    if (try_count < 10) and (current_pos in self.pos_dict):
+                    if (try_count < 20) and (current_pos in self.pos_dict):
                         to_swap = random.choice(self.pos_dict[current_pos]) # some rare pos tags may not have many words
                         token = self.tokenizer.encode(to_swap)
                         token = [t for t in token if t not in self.excluded_token_ids]
                         try_count += 1
                         # print(try_count,current_pos)
-                        if try_count == 10:
+                        if try_count == 20:
                             print(f"Warning: {current_pos} has few words (current word: {word})")
                             break
                     else:

@@ -271,27 +271,49 @@ class Corpus:
                     self.pos_dict[tag] = [w]
                 self.word_lookup[w] = tag
 
-
-        if self.single_token_words:
-            temp_pos_dict = {'OTHER':[]}
-            for key,value in self.pos_dict.items():
-                new = []
-                for v in set(value):
+        temp_pos_dict = {'OTHER':[]}
+        for key,value in self.pos_dict.items():
+            new = []
+            for v in set(value):
+                if self.single_token_words:
                     token = [t for t in self.tokenizer.encode(v) if t not in self.excluded_token_ids]
                     if len(token) == 1:
                         new.append(v)
-
-                if len(set(new)) < 5:
-                    temp_pos_dict['OTHER'].extend(set(new))
                 else:
-                    temp_pos_dict[key] = new
+                    new.append(v)
 
-            temp_word_lookup = {}
-            for pos in temp_pos_dict:
-                for word in temp_pos_dict[pos]:
-                    temp_word_lookup[word] = pos
-            self.pos_dict = temp_pos_dict
-            self.word_lookup = temp_word_lookup
+            if len(set(new)) < 5:
+                temp_pos_dict['OTHER'].extend(set(new))
+            else:
+                temp_pos_dict[key] = new
+
+        temp_word_lookup = {}
+        for pos in temp_pos_dict:
+            for word in temp_pos_dict[pos]:
+                temp_word_lookup[word] = pos
+        self.pos_dict = temp_pos_dict
+        self.word_lookup = temp_word_lookup
+
+        # if self.single_token_words:
+        #     temp_pos_dict = {'OTHER':[]}
+        #     for key,value in self.pos_dict.items():
+        #         new = []
+        #         for v in set(value):
+        #             token = [t for t in self.tokenizer.encode(v) if t not in self.excluded_token_ids]
+        #             if len(token) == 1:
+        #                 new.append(v)
+
+        #         if len(set(new)) < 5:
+        #             temp_pos_dict['OTHER'].extend(set(new))
+        #         else:
+        #             temp_pos_dict[key] = new
+
+        #     temp_word_lookup = {}
+        #     for pos in temp_pos_dict:
+        #         for word in temp_pos_dict[pos]:
+        #             temp_word_lookup[word] = pos
+        #     self.pos_dict = temp_pos_dict
+        #     self.word_lookup = temp_word_lookup
 
     def get_sentences_of_length(self, length):
         """Gets all (preprocessed) sentences of a specified length."""

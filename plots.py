@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
 from scipy.io import loadmat
@@ -10,7 +11,7 @@ plt.style.use('seaborn-whitegrid')
 rcParams['figure.dpi']= 1200
 
 
-def plot_difference_tensor_individual_layers(D,layers):
+def plot_difference_tensor_individual_layers(D,layers,sentence_len=12):
     """Plot the difference tensor for each layer."""
     D = D.mean(-1)
     D = np.moveaxis(D, 0,-1)
@@ -45,7 +46,7 @@ def plot_fit_params_individual_plots(stacked_fits):
 
 def average_over_units_indiv_plots(layers,fitobj,D_delta):  
     # plot differences and fits
-    
+    max_window_size = 21
     idx = 0
     t = np.arange(0,max_window_size)
     D_delta_all = np.stack(D_delta,0).mean(0)
@@ -71,6 +72,7 @@ def single_units(units,layers,fitobj,D_delta):
     # plot differences and fits
     lsize=1.5
     idx = 0
+    max_window_size = 21
     t = np.arange(0,max_window_size)
     for k,(unit,layer) in enumerate(zip(units,layers)):
         ax = plt.figure(figsize=(2,2)).gca()
@@ -89,7 +91,28 @@ def single_units(units,layers,fitobj,D_delta):
         ax.tick_params(labelright= False,labeltop= False,labelleft= False, labelbottom= False)
         idx += 1
 
-def yoking_plots(D,sentence_len,plot_type="vector"):
+def plot_fit_params(fitobj):
+    fig,axes = plt.subplots(figsize=(5.5,2.5),nrows=1,ncols=3,sharex=True,sharey=False)
+
+    for i,(plot_idx,to_plot) in enumerate(zip([2,0,1],['c','a','b'])):    
+        layers = [1,3,6,9,12]
+        ranges = [[0,1.5],[0,12],[0,1]]
+        axes[i].violinplot(fitobj[:,layers,plot_idx],showextrema=False,showmedians=True)
+        if i ==0:
+            axes[i].set_xticks(range(1,6),layers)
+            axes[i].set_xlabel('Layer')
+            axes[i].set_ylabel('Parameter value')
+        axes[i].set_ylim(ranges[plot_idx])
+        if to_plot == 'a':
+            axes[i].set_title(r'Power law' '\n' r'parameter $a$')
+        elif to_plot == 'b':
+            axes[i].set_title(r'Exponential rate' '\n' r'parameter $b$')
+        elif to_plot == 'c':
+            axes[i].set_title(r'Convex combination' '\n' r'parameter $c$')
+    fig.suptitle('Parameters for fits of form' '\n' r'$c (\Delta + 1)^{-a} + (1 - c)  e^{-b  \Delta}$')
+    fig.tight_layout()
+
+def yoking_plots(D,sentence_len,plot_type="vector",model='gpt2'):
     assert plot_type in ["vector","summary"]
     D = np.moveaxis(D, 0,-1)
     n_swap_time, n_model_time,n_units, n_layers = D.shape
